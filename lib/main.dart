@@ -6,6 +6,7 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const CounterApp());
@@ -37,8 +38,11 @@ class CounterScreen extends StatefulWidget {
 
 class _CounterScreenState extends State<CounterScreen>
     with SingleTickerProviderStateMixin {
+  static const _countStorageKey = 'saved_count';
+
   int _count = 0;
   final Random _rng = Random();
+  bool _isInitialized = false;
 
   late LinearGradient _bg;
 
@@ -58,6 +62,7 @@ class _CounterScreenState extends State<CounterScreen>
   void initState() {
     super.initState();
     _bg = _randomGamingGradient();
+    _loadSavedCount();
   }
 
   @override
@@ -76,6 +81,7 @@ class _CounterScreenState extends State<CounterScreen>
       _count += 1;
       _bg = _randomGamingGradient();
     });
+    _persistCount();
     _bump();
   }
 
@@ -84,7 +90,24 @@ class _CounterScreenState extends State<CounterScreen>
       _count -= 1;
       _bg = _randomGamingGradient();
     });
+    _persistCount();
     _bump();
+  }
+
+  Future<void> _loadSavedCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedCount = prefs.getInt(_countStorageKey) ?? 0;
+    if (!mounted) return;
+
+    setState(() {
+      _count = savedCount;
+      _isInitialized = true;
+    });
+  }
+
+  Future<void> _persistCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_countStorageKey, _count);
   }
 
   Future<void> _confirmReset() async {
@@ -114,6 +137,7 @@ class _CounterScreenState extends State<CounterScreen>
         _count = 0;
         _bg = _randomGamingGradient(); // リセット後も雰囲気変える
       });
+      _persistCount();
       _bump();
     }
   }
@@ -161,7 +185,7 @@ class _CounterScreenState extends State<CounterScreen>
   }
 
   // 「ゲーミングっぽいけど下品すぎない」寄せ方：
-  // - 彩度高めのネオン系をベースにしつつ、黒/濃紺寄りの色も混ぜる
+  // - 彩度高めのネオン系をベースにしつつ、暗すぎないトーンに揃える
   LinearGradient _randomGamingGradient() {
     final neon = <Color>[
       const Color(0xFF00E5FF), // cyan
@@ -174,18 +198,18 @@ class _CounterScreenState extends State<CounterScreen>
       const Color(0xFFD500F9), // magenta
     ];
 
-    // 暗めを混ぜる（実用的に落ち着かせる）
-    final darks = <Color>[
-      const Color(0xFF060A10),
-      const Color(0xFF070B1E),
-      const Color(0xFF0B1026),
-      const Color(0xFF0A0F14),
+    // 黒くなりすぎないように、彩度を残した深めカラーを使う
+    final deepTones = <Color>[
+      const Color(0xFF1C2460),
+      const Color(0xFF25316D),
+      const Color(0xFF3A2460),
+      const Color(0xFF17465E),
     ];
 
-    // 3色グラデ：ネオン2 + 暗め1（順番ランダム）
+    // 3色グラデ：ネオン2 + 深め1（順番ランダム）
     final c1 = neon[_rng.nextInt(neon.length)];
     final c2 = neon[_rng.nextInt(neon.length)];
-    final c3 = darks[_rng.nextInt(darks.length)];
+    final c3 = deepTones[_rng.nextInt(deepTones.length)];
 
     final colors = [c1, c2, c3]..shuffle(_rng);
 
@@ -208,6 +232,12 @@ class _CounterScreenState extends State<CounterScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     // ボタンが下にあるので、誤タップを避けるために下部は少し余白を持たせる
     const bottomBarHeight = 92.0;
 
@@ -239,11 +269,17 @@ class _CounterScreenState extends State<CounterScreen>
             Center(
               child: Padding(
                 padding: const EdgeInsets.only(bottom: bottomBarHeight * 0.35),
-                child: ScaleTransition(
-                  scale: _popScale,
-                  child: _GlowingText(
-                    _count.toString(),
-                    fontSize: 110,
+                child: FractionallySizedBox(
+                  widthFactor: 0.9,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: ScaleTransition(
+                      scale: _popScale,
+                      child: _GlowingText(
+                        _count.toString(),
+                        fontSize: 96,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -336,7 +372,10 @@ class _GlowingText extends StatelessWidget {
 
     return Text(
       text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       textAlign: TextAlign.center,
+      textScaler: const TextScaler.linear(1.0),
       style: style,
     );
   }
